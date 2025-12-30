@@ -4,63 +4,85 @@ import numpy as np
 import joblib
 
 # ==========================================
-# 1. PAGE SETUP
+# 1. PAGE SETUP (Professional Business Layout)
 # ==========================================
 st.set_page_config(
-    page_title="Solar Energy Predictor", 
-    page_icon="☀️",
+    page_title="Solar Expansion Planning Tool", 
+    page_icon="🏗️",
     layout="centered"
 )
 
 # ==========================================
-# 2. LOAD MODEL FUNCTION
+# 2. LOAD MODEL
 # ==========================================
 @st.cache_resource
 def load_model():
     try:
-        # Load the trained model from the same folder
         model = joblib.load('solar_xgboost_model.pkl')
         return model
     except FileNotFoundError:
-        st.error("⚠️ Error: 'solar_xgboost_model.pkl' not found.")
-        st.info("Please make sure the model file is in the same folder as this app.py file.")
+        st.error("⚠️ Error: Model file not found.")
         return None
 
 model = load_model()
 
 # ==========================================
-# 3. SIDEBAR UI (USER INPUTS)
+# 3. SIDEBAR (CONTEXT & INPUTS)
 # ==========================================
-st.title("☀️ Combined Solar Power Predictor")
+st.sidebar.title("🏗️ Project Parameters")
+
+# --- CONTEXT SECTION (UPDATED DETAILS) ---
+with st.sidebar.expander("ℹ️ Technical Specifications", expanded=True):
+    st.markdown("""
+    **Reference Site Comparison:**
+    Both sites operate **22 String Inverters**, providing a direct A/B comparison for the new facility. However, they utilize different mounting and panel technologies:
+
+    ---
+    **📍 Reference Site A (Baseline)**
+    * **Configuration:** Fixed-Tilt Mounting (20°)
+    * **Technology:** Polycrystalline Panels
+    * **Efficiency:** Standard Commercial Grade
+    * *Role: Conservative lower-bound estimate.*
+
+    ---
+    **📍 Reference Site B (Optimized)**
+    * **Configuration:** Seasonal Tilt / Optimized Orientation
+    * **Technology:** Monocrystalline PERC (High Efficiency)
+    * **Efficiency:** Premium Grade
+    * *Role: Performance upper-bound estimate.*
+    """)
+
+st.sidebar.divider()
+st.sidebar.header("Forecast Inputs")
+
+# Inputs
+date_time = st.sidebar.time_input("Target Time", value=pd.to_datetime("12:00").time())
+ambient_temp = st.sidebar.slider("Ambient Temperature (°C)", 20.0, 45.0, 32.0)
+module_temp = st.sidebar.slider("Panel Temperature (°C)", 20.0, 75.0, 50.0)
+irradiation = st.sidebar.slider("Irradiation (kW/m²)", 0.0, 1.2, 0.8)
+
+# ==========================================
+# 4. MAIN PAGE
+# ==========================================
+st.title("Solar Plant Feasibility Dashboard")
 st.markdown("""
-Predict the **Total Power Output** for the entire solar farm (Plant 1 + Plant 2) 
-based on weather forecast data.
+### 📊 New Construction Benchmarking
+Use this tool to predict power generation capacity for the **Proposed Solar Facility**. 
+Calculations are based on historical performance data from Reference Sites A & B.
 """)
 
-st.sidebar.header("Weather Conditions")
-
-# Input: Time
-date_time = st.sidebar.time_input("Time of Day", value=pd.to_datetime("12:00").time())
-
-# Input: Weather Variables
-ambient_temp = st.sidebar.slider("Ambient Temperature (°C)", 20.0, 45.0, 32.0)
-module_temp = st.sidebar.slider("Module Temperature (°C)", 20.0, 75.0, 50.0)
-irradiation = st.sidebar.slider("Irradiation (Sunlight)", 0.0, 1.2, 0.8)
+st.divider()
 
 # ==========================================
-# 4. PREDICTION LOGIC
+# 5. PREDICTION LOGIC
 # ==========================================
-if st.button("Predict Total Power", type="primary"):
+if st.button("Calculate Estimated Output", type="primary"):
     if model:
-        # Get Hour and Minute
+        # Extract features
         hour = date_time.hour
         minute = date_time.minute
         
-        # We need to predict for BOTH plants simultaneously.
-        # We create a dataframe with 2 rows:
-        # Row 0 = Plant 1 (Code 0)
-        # Row 1 = Plant 2 (Code 1)
-        
+        # Create input for both reference plants to compare
         input_data = pd.DataFrame({
             'AMBIENT_TEMPERATURE': [ambient_temp, ambient_temp],
             'MODULE_TEMPERATURE': [module_temp, module_temp],
@@ -70,33 +92,46 @@ if st.button("Predict Total Power", type="primary"):
             'PLANT_CODE':          [0, 1] 
         })
         
-        # Run Prediction
+        # Predict
         predictions = model.predict(input_data)
         
-        # Extract results (ensure no negative numbers using max(0, value))
-        p1_power = max(0, predictions[0]) 
-        p2_power = max(0, predictions[1])
-        total_power = p1_power + p2_power
+        # Results
+        site_a_power = max(0, predictions[0]) 
+        site_b_power = max(0, predictions[1])
+        
+        # We assume the new plant might be a mix or sum of these capabilities
+        total_capacity = site_a_power + site_b_power
         
         # ==========================================
-        # 5. DISPLAY RESULTS
+        # 6. RESULTS DISPLAY
         # ==========================================
-        st.divider()
-        st.subheader("Results")
+        st.subheader("💡 Feasibility Analysis Results")
         
-        # BIG METRIC: Total Power
-        st.success(f"⚡ **Total Farm Output:** {total_power:,.2f} kW")
+        # High Level Metric
+        st.success(f"**Projected System Output:** {total_capacity:,.2f} kW")
+        st.caption(f"Estimated output for a dual-array facility under defined weather conditions.")
         
-        # Breakdown Metrics
+        # Comparison Columns
         col1, col2 = st.columns(2)
+        
         with col1:
-            st.metric("🏭 Plant 1", f"{p1_power:,.2f} kW")
-        with col2:
-            st.metric("🏭 Plant 2", f"{p2_power:,.2f} kW")
+            st.info("📉 **Conservative Estimate**")
+            st.metric("Based on Site A (Fixed Tilt)", f"{site_a_power:,.2f} kW")
+            st.write("Baseline yield using standard polycrystalline tech.")
             
-        # Fun Logic / Context
-        if irradiation == 0:
-            st.info("🌙 It is night time. Power generation is zero.")
-        elif total_power > 8000:
-            st.balloons()
-            st.info("🔥 High efficiency detected! The panels are working hard.")
+        with col2:
+            st.info("📈 **Optimized Estimate**")
+            st.metric("Based on Site B (Optimized)", f"{site_b_power:,.2f} kW")
+            st.write("Potential yield using premium monocrystalline tech.")
+            
+        # Recommendation Logic
+        st.divider()
+        if irradiation > 0.8 and total_capacity > 8000:
+            st.markdown("### ✅ Recommendation: High Viability")
+            st.write("Conditions are ideal for high ROI. The proposed location shows excellent potential for peak load generation matching the Optimized Site B profile.")
+        elif irradiation < 0.2:
+            st.markdown("### ⚠️ Recommendation: Storage Required")
+            st.write("Low irradiation conditions. Feasibility depends on battery storage integration.")
+        else:
+            st.markdown("### ℹ️ Recommendation: Standard Operation")
+            st.write("Output falls within nominal ranges. Financial viability depends on grid tariff rates.")
